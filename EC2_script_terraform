@@ -1,0 +1,24 @@
+provider "aws" {
+  region  = "ap-south-1"
+}
+
+
+
+resource "aws_instance" "ec2one" {
+  ami           = "ami-0c1a7f89451184c8b"
+  instance_type = "t2.micro"
+  key_name      = "keypair"
+  subnet_id     = "subnet-6a03e601"
+  security_groups = [ "sg-3720c84c" ]
+
+  root_block_device {
+ #  device_name           =
+    volume_size           = 10
+    volume_type           = "gp2"
+  }
+
+  tags = {
+    Name = "first"
+  }
+}
+
