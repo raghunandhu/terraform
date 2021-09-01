@@ -1,0 +1,100 @@
+provider "aws" {
+   region = "ap-south-1"
+}
+
+
+
+resource "aws_vpc" "vpc1_demo" {
+  cidr_block       = "10.10.0.0/16"
+  instance_tenancy = "default"
+
+  tags = {
+    Name = "main"
+  }
+}
+
+
+resource "aws_subnet" "subnet1_demo" {
+  vpc_id     = aws_vpc.vpc1_demo.id
+  cidr_block = "10.10.0.0/24"
+  availability_zone = "ap-south-1a"
+  tags = {
+    Name = "Main1"
+  }
+}
+
+resource "aws_subnet" "subnet2_demo" {
+  vpc_id     = aws_vpc.vpc1_demo.id
+  cidr_block = "10.10.1.0/24"
+  availability_zone = "ap-south-1b"
+  tags = {
+    Name = "Main2"
+  }
+}
+
+resource "aws_internet_gateway" "igw_demo" {
+  vpc_id = aws_vpc.vpc1_demo.id
+
+  tags = {
+    Name = "main"
+  }
+}
+
+resource "aws_route_table" "routetable_demo" {
+  vpc_id = aws_vpc.vpc1_demo.id
+
+#  route {
+#      cidr_block = "0.0.0.0/0"
+#      gateway_id = aws_internet_gateway.igw_demo.id
+#  }
+}
+
+
+resource "aws_route" "public" {
+  route_table_id            = aws_route_table.routetable_demo.id
+  destination_cidr_block    = "0.0.0.0/0"
+  gateway_id = aws_internet_gateway.igw_demo.id
+  depends_on                = [aws_route_table.routetable_demo]
+}
+
+
+
+
+
+resource "aws_route_table_association" "a1" {
+  subnet_id      = aws_subnet.subnet1_demo.id
+  route_table_id = aws_route_table.routetable_demo.id
+}
+######################################### privat section###################################
+resource "aws_eip" "eip1_demo" {
+  vpc = true
+}
+
+resource "aws_nat_gateway" "ngw_demo" {
+  allocation_id     = aws_eip.eip1_demo.id
+  subnet_id         = aws_subnet.subnet1_demo.id
+}
+
+resource "aws_route_table" "routetable1_demo" {
+  vpc_id = aws_vpc.vpc1_demo.id
+
+#  route {
+#      cidr_block = "0.0.0.0/0"
+#      nat_gateway_id = aws_nat_gateway.ngw_demo.id
+#  }
+}
+
+
+resource "aws_route" "r" {
+  route_table_id            = aws_route_table.routetable1_demo.id
+  destination_cidr_block    = "0.0.0.0/0"
+  nat_gateway_id          = aws_nat_gateway.ngw_demo.id
+  depends_on                = [aws_route_table.routetable1_demo]
+}
+
+
+
+resource "aws_route_table_association" "a2" {
+  subnet_id      = aws_subnet.subnet2_demo.id
+  route_table_id = aws_route_table.routetable1_demo.id
+}
