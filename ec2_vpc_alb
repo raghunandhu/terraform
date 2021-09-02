@@ -1,0 +1,246 @@
+provider "aws" {
+   region = "ap-south-1"
+}
+
+############################  VPC ###############################
+resource "aws_vpc" "vpc1" {
+  cidr_block       = "10.0.0.0/16"
+  instance_tenancy = "default"
+
+  tags = {
+    Name = "vpcdemo"
+  }
+}
+
+############################## subnet1 ###############################
+resource "aws_subnet" "subnet1" {
+  vpc_id     = aws_vpc.vpc1.id
+  cidr_block = "10.0.0.0/24"
+  availability_zone = "ap-south-1a"
+  map_public_ip_on_launch = "true"
+  tags = {
+    Name = "publicsb1"
+  }
+}
+############################ subnet2 ##################################
+resource "aws_subnet" "subnet2" {
+  vpc_id     = aws_vpc.vpc1.id
+  cidr_block = "10.0.1.0/24"
+  availability_zone = "ap-south-1b"
+  map_public_ip_on_launch = "true"
+  tags = {
+    Name = "punlicsb2"
+  }
+}
+################################# subnet 3 ##########################
+resource "aws_subnet" "subnet3" {
+  vpc_id     = aws_vpc.vpc1.id
+  cidr_block = "10.0.2.0/24"
+  availability_zone = "ap-south-1a"
+  tags = {
+    Name = "privatesb1"
+  }
+}
+################################# subnet 4 ###########################
+resource "aws_subnet" "subnet4" {
+  vpc_id     = aws_vpc.vpc1.id
+  cidr_block = "10.0.3.0/24"
+  availability_zone = "ap-south-1b"
+  tags = {
+    Name = "privatesb2"
+  }
+}
+
+###################################### igw ######################################
+resource "aws_internet_gateway" "igw_demo" {
+  vpc_id = aws_vpc.vpc1.id
+
+  tags = {
+    Name = "main"
+  }
+}
+######################################### route1 ##################################
+resource "aws_route_table" "routetable" {
+  vpc_id = aws_vpc.vpc1.id
+
+#  route {
+#      cidr_block = "0.0.0.0/0"
+#      gateway_id = aws_internet_gateway.igw_demo.id
+#  }
+}
+
+
+resource "aws_route" "public" {
+  route_table_id            = aws_route_table.routetable.id
+  destination_cidr_block    = "0.0.0.0/0"
+  gateway_id = aws_internet_gateway.igw_demo.id
+  depends_on                = [aws_route_table.routetable]
+}
+
+################################# route table association #################################
+resource "aws_route_table_association" "a1" {
+  subnet_id      = aws_subnet.subnet1.id
+  route_table_id = aws_route_table.routetable.id
+}
+
+
+resource "aws_route_table_association" "a2" {
+  subnet_id      = aws_subnet.subnet2.id
+  route_table_id = aws_route_table.routetable.id
+}
+
+
+######################################### privat section###################################
+
+
+############################## elastic ip ##################################
+resource "aws_eip" "eip1_demo" {
+  vpc = true
+}
+####################################### NAT ################################################
+resource "aws_nat_gateway" "ngw_demo" {
+  allocation_id     = aws_eip.eip1_demo.id
+  subnet_id         = aws_subnet.subnet1.id
+}
+############################################## route 2 ######################################
+resource "aws_route_table" "routetable1" {
+  vpc_id = aws_vpc.vpc1.id
+
+#  route {
+#      cidr_block = "0.0.0.0/0"
+#      nat_gateway_id = aws_nat_gateway.ngw_demo.id
+#  }
+}
+
+
+resource "aws_route" "r" {
+  route_table_id            = aws_route_table.routetable1.id
+  destination_cidr_block    = "0.0.0.0/0"
+  nat_gateway_id          = aws_nat_gateway.ngw_demo.id
+  depends_on                = [aws_route_table.routetable1]
+}
+
+
+###################################### route table association ####################################
+resource "aws_route_table_association" "a3" {
+  subnet_id      = aws_subnet.subnet3.id
+  route_table_id = aws_route_table.routetable1.id
+}
+################################### route table ass ##########################
+resource "aws_route_table_association" "a4" {
+  subnet_id      = aws_subnet.subnet4.id
+  route_table_id = aws_route_table.routetable1.id
+}
+
+resource "aws_security_group" "allow_tls" {
+  name        = "allow_tls"
+  description = "Allow TLS inbound traffic"
+  vpc_id      = aws_vpc.vpc1.id
+
+  ingress {
+      description      = "SSH"
+      from_port        = 22
+      to_port          = 22
+      protocol         = "tcp"
+      cidr_blocks      = ["0.0.0.0/0"]
+   }
+
+
+  egress   {
+      from_port        = 0
+      to_port          = 0
+      protocol         = "-1"
+      cidr_blocks      = ["0.0.0.0/0"]
+   }
+
+  tags = {
+    Name = "allow_tls"
+  }
+}
+
+
+############################### EC2 instance basiton instance ##########################
+resource "aws_instance" "public_ec2" {
+  ami           = "ami-0c1a7f89451184c8b"
+  instance_type = "t2.micro"
+  key_name      = "keypair"
+  subnet_id     = aws_subnet.subnet1.id
+  depends_on    = [aws_subnet.subnet1]
+  vpc_security_group_ids = [aws_security_group.allow_tls.id]
+#  associate_public_ip_address = "true"
+
+  tags = {
+    Name = "public"
+  }
+}
+
+################################# EC2  instance for private subnet #########################
+resource "aws_instance" "private_ec2" {
+  ami           = "ami-0c1a7f89451184c8b"
+  instance_type = "t2.micro"
+  key_name      = "keypair"
+  user_data = <<-EOF
+                #! /bin/bash
+                sudo apt-get update
+                sudo apt-get install -y apache2
+                sudo systemctl start apache2
+                sudo systemctl enable apache2
+                echo "<h1>Deployed via Terraform</h1>" | sudo tee /var/www/html/index.html
+  EOF
+  subnet_id     = aws_subnet.subnet3.id
+  vpc_security_group_ids = [aws_security_group.allow_tls.id]
+
+  tags = {
+    Name = "private"
+  }
+}
+###################################### alb #####################################
+resource "aws_lb" "alb1" {
+  name               = "test-lb-tf"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.allow_tls.id]
+  subnets            = [ aws_subnet.subnet1.id , aws_subnet.subnet2.id ]
+
+  enable_deletion_protection = false
+
+#  access_logs {
+#   bucket  = aws_s3_bucket.lb_logs.bucket
+#   prefix  = "test-lb"
+#   enabled = true
+# }
+
+  tags = {
+    Environment = "production"
+  }
+}
+################################## target group #####################################33333
+resource "aws_lb_target_group" "alb_target1" {
+  name     = "alb-tg"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.vpc1.id
+}
+
+#resource "aws_vpc" "main" {
+# cidr_block = "10.0.0.0/16"
+#}
+################################ target group attachement #####################################
+resource "aws_lb_target_group_attachment" "alb_tg_attach" {
+  target_group_arn = aws_lb_target_group.alb_target1.arn
+  target_id        = aws_instance.private_ec2.id
+  port             = 80
+}
+########################### alb listner ###########################
+resource "aws_lb_listener" "alb_listern1" {
+  load_balancer_arn = aws_lb.alb1.arn
+  port              = "80"
+  protocol          = "HTTP"
+#  ssl_policy        = "ELBSecurityPolicy-2016-08"
+#  certificate_arn   = "arn:aws:iam::187416307283:server-certificate/test_cert_rab3wuqwgja25ct3n4jdj2tzu4"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.alb_target1.arn
+  }
+}
